@@ -69,7 +69,7 @@ class Param(np.ndarray):
         # pass grads to the results here too
         results = tuple((np.asarray(result).view(Param) if output is None else output for result, output in zip(results, outputs)))
         parent = Edge(ufunc, method, inputs, kwargs, trainable=trainable)
-        name = Param.random_name()
+        name = f"{ufunc.__name__}_{Param.random_name()}"
         if results:
             if isinstance(results[0], Param):
                 results[0].parent = parent
@@ -87,7 +87,7 @@ class Param(np.ndarray):
         input_arrays = [arg.view(np.ndarray) if isinstance(arg, Param) else arg for arg in args]
         return_arr = func(*input_arrays, **kwargs)
         trainable =  any(input_arg.trainable for input_arg in args if isinstance(input_arg, Param))
-        return Param(value=return_arr, name=Param.random_name(), parent=Edge(func, method=None, inputs=args, kwargs=kwargs, trainable=trainable))
+        return Param(value=return_arr, name=f"{func.__name__}_{Param.random_name()}", parent=Edge(func, method=None, inputs=args, kwargs=kwargs, trainable=trainable))
 
     def __iadd__(self, *args, **kwargs):
         np.ndarray.__iadd__(self.view(np.ndarray), *args, **kwargs)

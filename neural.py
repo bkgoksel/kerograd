@@ -50,6 +50,7 @@ class LinearLayer(NamedOp):
     def forward(self, inpt: np.array) -> Param:
         return (self.W @ inpt.reshape(list(inpt.shape) + [1])).squeeze(-1) + self.b
         
+@dataclass
 class ReLU(NamedOp):
     name: str|None = None
     type_name: str = "ReLU"
@@ -57,9 +58,10 @@ class ReLU(NamedOp):
     def forward(self, inpt: np.array) -> Param:
         return np.maximum(inpt, 0)
 
-def relu(inpt: np.array) -> Param:
-    return ReLU().apply(inpt)
+def relu(inpt: np.array, name: str | None = None) -> Param:
+    return ReLU(name).apply(inpt)
 
+@dataclass
 class MeanSquaredLoss(NamedOp):
     name: str|None = None
     type_name: str = "MeanSquaredLoss"
@@ -67,8 +69,8 @@ class MeanSquaredLoss(NamedOp):
     def forward(self, inpt: np.array, gold: np.array) -> np.array:
         return np.mean((inpt-gold)**2)
 
-def mean_squared_loss(inpt: np.ndarray, gold: np.ndarray) -> Param:
-    return MeanSquaredLoss().apply(inpt, gold)
+def mean_squared_loss(inpt: np.ndarray, gold: np.ndarray, name: str | None = None) -> Param:
+    return MeanSquaredLoss(name).apply(inpt, gold)
 
 class Optimizer:
 
