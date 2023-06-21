@@ -84,15 +84,18 @@ class Param(np.ndarray):
         # __array_function__ to handle Param objects
         if not all(issubclass(t, Param) for t in types):
             return NotImplemented
-        input_arrays = [arg.view(np.ndarray) for arg in args]
+        input_arrays = [arg.view(np.ndarray) if isinstance(arg, Param) else arg for arg in args]
         return_arr = func(*input_arrays, **kwargs)
-        trainable =  any(input_arg.trainable for input_arg in args)
+        trainable =  any(input_arg.trainable for input_arg in args if isinstance(input_arg, Param))
         return Param(value=return_arr, name=Param.random_name(), parent=Edge(func, method=None, inputs=args, kwargs=kwargs, trainable=trainable))
 
     def __iadd__(self, *args, **kwargs):
         np.ndarray.__iadd__(self.view(np.ndarray), *args, **kwargs)
 
     def grad_update(self, val: np.ndarray):
+        if len(val.shape) == len(self.shape) + 1:
+            # batched
+            val = val.sum((0))
         self.__iadd__(-val)
 
     def _is_upstream_of_trainable(self) -> bool:
@@ -149,6 +152,8 @@ class ComputationGraph:
                 if isinstance(parent_param, Param):
                     str += f"{prefix}\tParam:\n"
                     str += cls._graph_string(parent_param, prefix + "\t  ")
+                elif isinstance(parent_param, np.ndarray):
+                    str += f"{prefix}\tParam:\n{prefix}\t  {parent_param.shape}\n"
                 else:
                     str += f"{prefix}\tParam:\n{prefix}\t  {parent_param}\n"
         return str

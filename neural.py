@@ -42,14 +42,13 @@ class LinearLayer(NamedOp):
     initialization: Initialization = HeInitialization
     type_name: str = "Linear"
 
-
     def __post_init__(self):
         super().__post_init__()
         self.W = Param(self.initialization.initialize((self.output_dim, self.input_dim)), name=f"{self.name}_W", trainable=True)
         self.b = Param(np.zeros((self.output_dim)), name=f"{self.name}_b", trainable=True)
 
     def forward(self, inpt: np.array) -> Param:
-        return self.W @ inpt + self.b
+        return (self.W @ inpt.reshape(list(inpt.shape) + [1])).squeeze(-1) + self.b
         
 class ReLU(NamedOp):
     name: str|None = None
