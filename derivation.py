@@ -40,11 +40,16 @@ def matmul(inputs: list[any], differentiate_wrt: str, rolling_partial: np.ndarra
         return rolling_partial.dot(other_param)
     elif len(other_param.shape) == 1 or other_param.shape[-1] == 1:
         # We're taking a derivative w.r.t a matrix: dAx/dA = a 3d matrix that has x^T on its 2d diagonal
-        diagonal = np.diagflat(np.ones(wrt_param.shape[0])).reshape((1, wrt_param.shape[0], wrt_param.shape[0], 1))
-        x_t = other_param.reshape((other_param.shape[0], 1, 1, other_param.shape[-2]))
-        grad = diagonal * (x_t)
-        result = np.einsum('bi,bimo->bio', rolling_partial, grad)
-        return result
+        diagonal_shape = [wrt_param.shape[0], wrt_param.shape[0], 1]
+        x_t = other_param
+        grad_mul = 'i,imo->io'
+        if len(other_param.shape) > 1:
+            diagonal_shape = [1] + diagonal_shape
+            x_t = other_param.reshape((other_param.shape[0], 1, 1, other_param.shape[-2]))
+            grad_mul = 'bi,bimo->bio'
+        diagonal = np.diagflat(np.ones(wrt_param.shape[0])).reshape(diagonal_shape)
+        grad = diagonal * x_t
+        return np.einsum(grad_mul, rolling_partial, grad)
     else:
         raise NotImplementedError("matrix-matrix derivatives not yet implemented")
 

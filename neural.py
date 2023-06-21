@@ -48,7 +48,10 @@ class LinearLayer(NamedOp):
         self.b = Param(np.zeros((self.output_dim)), name=f"{self.name}_b", trainable=True)
 
     def forward(self, inpt: np.array) -> Param:
-        return (self.W @ inpt.reshape(list(inpt.shape) + [1])).squeeze(-1) + self.b
+        if len(inpt.shape) > 1:
+            return (self.W @ inpt.reshape(list(inpt.shape) + [1])).squeeze(-1) + self.b
+        else:
+            return self.W @ inpt + self.b
         
 @dataclass
 class ReLU(NamedOp):
