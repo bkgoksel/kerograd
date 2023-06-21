@@ -51,7 +51,6 @@ class LinearLayer(NamedOp):
     def forward(self, inpt: np.array) -> Param:
         return self.W @ inpt + self.b
         
-
 class ReLU(NamedOp):
     name: str|None = None
     type_name: str = "ReLU"
@@ -59,6 +58,8 @@ class ReLU(NamedOp):
     def forward(self, inpt: np.array) -> Param:
         return np.maximum(inpt, 0)
 
+def relu(inpt: np.array) -> Param:
+    return ReLU().apply(inpt)
 
 class MeanSquaredLoss(NamedOp):
     name: str|None = None
@@ -67,17 +68,34 @@ class MeanSquaredLoss(NamedOp):
     def forward(self, inpt: np.array, gold: np.array) -> np.array:
         return np.mean((inpt-gold)**2)
 
+def mean_squared_loss(inpt: np.ndarray, gold: np.ndarray) -> Param:
+    return MeanSquaredLoss().apply(inpt, gold)
+
 class Optimizer:
 
     @abstractmethod
-    def optimize(self, graph: ComputationGraph) -> None:
+    def optimize_graph(self, graph: ComputationGraph) -> None:
         pass
 
+    def optimize_param(self, param: Param) -> None:
+        """
+        Applies gradient descent to compuation graph resulting in the given parameter to minimize it.
+        """
+        self.optimize_graph(ComputationGraph.from_param(param))
+
+    @classmethod
+    def optimize(cls, graph: ComputationGraph, *args, **kwargs) -> None:
+        return cls(*args, **kwargs).optimize_graph(graph)
+
+    @classmethod
+    def optimize(cls, param: Param, *args, **kwargs) -> None:
+        return cls(*args, **kwargs).optimize_param(param)
+
 @dataclass
-class SimpleOptimizer:
+class SimpleOptimizer(Optimizer):
     learning_rate: float = 2e-3
 
-    def optimize(self, graph: ComputationGraph) -> None:
+    def optimize_graph(self, graph: ComputationGraph) -> None:
         for param_name, param in graph.params.items():
             if param_name in graph.grads:
                 param.grad_update(self.learning_rate * graph.grads[param_name])

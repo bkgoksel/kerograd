@@ -1,9 +1,8 @@
-from abc import abstractmethod
 from dataclasses import dataclass
 import numpy as np
 import string
 import random
-from typing import Optional, Iterable
+from typing import Iterable
 
 from derivation import DIFFERENTIABLE_FUNCTIONS
     
@@ -25,6 +24,7 @@ class Param(np.ndarray):
     A Numpy ndarray that keeps track of computations it's been in.
     """
 
+    @staticmethod
     def random_name(length: int = 12) -> str:
         return f"_auto_{''.join(random.choices(string.ascii_lowercase, k=length))}"
 
@@ -66,7 +66,6 @@ class Param(np.ndarray):
         if ufunc.nout == 1:
             results = (results,)
 
-        
         # pass grads to the results here too
         results = tuple((np.asarray(result).view(Param) if output is None else output for result, output in zip(results, outputs)))
         parent = Edge(ufunc, method, inputs, kwargs, trainable=trainable)
@@ -80,38 +79,21 @@ class Param(np.ndarray):
 
         return results[0] if len(results) == 1 else results
 
-
     def __array_function__(self, func, types, args, kwargs):
-        if func not in HANDLED_FUNCTIONS:
-            return NotImplemented
         # Note: this allows subclasses that don't override
         # __array_function__ to handle Param objects
         if not all(issubclass(t, Param) for t in types):
             return NotImplemented
-        return HANDLED_FUNCTIONS[func](*args, **kwargs)
-
-    def implements(numpy_function):
-        """Register an __array_function__ implementation for MyArray objects."""
-        def decorator(func):
-            HANDLED_FUNCTIONS[numpy_function] = func
-            return func
-        return decorator
-
-    @implements(np.transpose)
-    def transpose(a: np.ndarray, axes: list[int] = None) -> np.ndarray:
-        return Param(value=a.view(np.ndarray).transpose(), name=Param.random_name(), parent=Edge(np.transpose, method=None, inputs=(a,), kwargs={"axes": axes}, trainable=getattr(a, 'trainable', False)))
-
-    @implements(np.mean)
-    def mean(a: np.ndarray, axis: None|int|tuple[int] = None, dtype: None|np.dtype = None, keepdims: bool = False, where: None|np.ndarray = None) -> np.ndarray:
-        result_arr = a.view(np.ndarray).mean()
-        return Param(value=(result_arr,), name=Param.random_name(), parent=Edge(np.mean, method=None, inputs=(a,), kwargs={"axis": axis, "dtype": dtype, "keepdims":keepdims, "where": where}), trainable=getattr(a, 'trainable', False))
+        input_arrays = [arg.view(np.ndarray) for arg in args]
+        return_arr = func(*input_arrays, **kwargs)
+        trainable =  any(input_arg.trainable for input_arg in args)
+        return Param(value=return_arr, name=Param.random_name(), parent=Edge(func, method=None, inputs=args, kwargs=kwargs, trainable=trainable))
 
     def __iadd__(self, *args, **kwargs):
         np.ndarray.__iadd__(self.view(np.ndarray), *args, **kwargs)
 
     def grad_update(self, val: np.ndarray):
         self.__iadd__(-val)
-
 
     def _is_upstream_of_trainable(self) -> bool:
         return self.trainable or (self.parent and self.parent.trainable)
@@ -176,5 +158,3 @@ class ComputationGraph:
 
     def summary(self) -> None:
         print("\n".join([f"{param_name}: {param.shape} <-> {self.grads[param_name].shape}" for param_name, param in self.params.items()]))
-
-        
