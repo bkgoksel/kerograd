@@ -51,7 +51,8 @@ class LinearLayer(NamedOp):
         if len(inpt.shape) > 1:
             return (self.W @ inpt.reshape(list(inpt.shape) + [1])).squeeze(-1) + self.b
         else:
-            return self.W @ inpt + self.b
+            # W @ inpt + b
+            return np.einsum('ij,j->i', self.W, inpt) + self.b
         
 @dataclass
 class ReLU(NamedOp):

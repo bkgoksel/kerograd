@@ -29,6 +29,69 @@ def multiply(inputs: list[any], differentiate_wrt: str, rolling_partial: np.ndar
         if hasattr(param, 'name') and param.name == differentiate_wrt:
             return rolling_partial * (inputs[(i-1)**2])
 
+@differentiates(np.einsum)
+def einsum(inputs: list[any], differentiate_wrt: str, rolling_partial: np.ndarray) -> np.ndarray:
+    # TODO: parse einsum string, figure out what the derivation is
+    #   - Ellipses/broadcasting will likely be annoying
+    summation, arrays = inputs[0], inputs[1:]
+    if '...' in summation:
+        raise NotImplementedError("brodcasting in einsum not supported yet")
+    if '->' not in summation:
+        raise NotImplementedError("only explicit mode einsum differentiation is supported")
+    sum_in, sum_out = summation.split("->")
+    sum_terms = sum_in.split(',')
+    sum_dimensionality = {}
+    for param, sum_term in zip(arrays, sum_terms):
+        assert len(sum_term) == len(param.shape)
+        sum_dimensionality.update(dict(zip(sum_term, param.shape)))
+        if hasattr(param, 'name') and param.name == differentiate_wrt:
+            wrt_param = param
+            wrt_indices = list(sum_term)
+
+    grad_shape = tuple([sum_dimensionality[index] for index in sum_out] + list(wrt_param.shape))
+    print(summation)
+    print(", ".join(str(array.shape) for array in arrays))
+    print(grad_shape)
+
+    """
+    GRAD = (out) x (in)
+         = (out_term) x (in_term)
+    A = (2, 3) b = (3)
+
+    O = einsum("ij,j->i") => O_(i in 2) = sum_jin3 A_ij * b_j
+    dO/dA = (2 x 2 x 3)
+    [dO/dA]_(x,y,z) = dO_x / dA_(y,z) = d sum(j in 3) A_xj * bj / dA_(y,z)
+                                      = d sum(j in 3) A_yj * bj if x == y else 0 / dA(y,z)
+                                      = d Ayz * bz / dAyz
+                                      = bz if x == y else 0
+    d_[i,i] = b, elsewhere 0
+
+    (i, i, j) => i)out=i_in -> grad is b_j up to j
+        
+    B = einsum("ij,j->j") => B_(j in 3) = sum_iin2 A_ij * b_j    
+    dB/dA = (3 x 2 x 3)
+    [dB/dA]_(x,y,z) = dB_x / dA_(y,z) = d sum(i in 2) A_ix * b_x / dA_(y,z)
+                                      = d sum(i in 2) A_iz * b_z / dA_(y,z) if x == z else 0
+                                      = d Ayz * bz / dAyz
+                                      = bz if x == z else 0
+    d_[0,0,0] = b_0, d_[1,0,1] = b_1, d_[0,1,0] = b_0, d_[1,1,1] = b_1  
+
+    d_[i,:,i] = b[:2], elsewhere 0
+
+    (j, i, j) => j_out=j_in -> grad is b_j up to i
+
+    grad shape is (out shape) x (wrt shape)
+    where the dimension from the output shape matches the corresponding dimension from the wrt param shape
+    eg along the diagonal of out[n], wrt[n] where out[n] and wrt[n] are the same dimension in the einsum
+        the gradient is the other param
+
+    
+
+    """
+    
+    
+    raise NotImplementedError("einsum not implemented")
+
 @differentiates(np.matmul)
 def matmul(inputs: list[any], differentiate_wrt: str, rolling_partial: np.ndarray) -> np.ndarray:
     for i, param in enumerate(inputs):
