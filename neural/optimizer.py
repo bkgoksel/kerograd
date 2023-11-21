@@ -26,8 +26,8 @@ class Optimizer:
 
 @dataclass
 class SimpleOptimizer(Optimizer):
-    learning_rate: float = 2e-4
-    gradient_clip: float = 100
+    learning_rate: float = 2e-3
+    gradient_clip: float = 1e4
 
     def optimize_graph(self, graph: ComputationGraph) -> None:
         for param_name, param in graph.params.items():

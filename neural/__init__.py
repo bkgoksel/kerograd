@@ -1,3 +1,4 @@
+from .transformer import Transformer
 from .attention import AttentionHead, MultiHeadAttention
 from .initialization import Initialization, HeInitialization, RandomInitialization
 from .linear import LinearLayer
