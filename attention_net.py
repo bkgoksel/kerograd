@@ -46,12 +46,13 @@ gold_output_one_hot = np.eye(len(vocab))[gold_output_indices]
 def iteration(i):
     hidden_state = embedding_layer.apply(input_tokens)
     hidden_state = hidden_state + positional_encodings
-    hidden_state = attention.apply(
+    hidden_state = hidden_state + attention.apply(
         q=hidden_state, k=hidden_state, v=hidden_state
     )
     hidden_state = layer_norm(hidden_state) # [context_len, model_dim]
 
-    hidden_state = layer_fc.apply(hidden_state)
+    hidden_state = hidden_state + layer_fc.apply(hidden_state)
+    # TODO: Uncommenting below causes infinite recursion errors
     #hidden_state = layer_norm(hidden_state)
 
     hidden_state = embedding_layer.to_embeddings(hidden_state) # [context_len, vocab_size]
