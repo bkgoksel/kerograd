@@ -44,7 +44,7 @@ class DecoderLayer(NamedOp):
         )
         #hidden_state = layer_norm(hidden_state)
         hidden_state = hidden_state + self.fc_net.apply(hidden_state)
-        # hidden_state = layer_norm(hidden_state)
+        #hidden_state = layer_norm(hidden_state)
         return hidden_state
 
 
@@ -63,7 +63,7 @@ class Transformer(NamedOp):
     def __post_init__(self):
         super().__post_init__()
         self.reverse_vocab = {v: k for k, v in self.vocab.items()}
-        self.embedding_layer = Embeddings(vocab_size=len(self.vocab), dim=self.model_dim)
+        self.embedding_layer = Embeddings(vocab_size=len(self.vocab), dim=self.model_dim, name=f"{self.name}_embeddings")
         self.decoders = [
             DecoderLayer(
                 input_dim=self.model_dim,
@@ -82,7 +82,7 @@ class Transformer(NamedOp):
             len(input_tokens), self.model_dim
         )
         hidden_state = self.embedding_layer.apply(input_tokens)
-        hidden_state = hidden_state + positional_encodings
+        #hidden_state = hidden_state + positional_encodings
         for decoder_layer in self.decoders:
             hidden_state = decoder_layer.apply(hidden_state)
         logits = self.embedding_layer.to_embeddings(hidden_state)

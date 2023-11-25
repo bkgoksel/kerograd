@@ -1,4 +1,5 @@
 import string
+import sys
 
 import numpy as np
 
@@ -16,9 +17,9 @@ epochs = 1000
 vocab = {"~": 0} | {t[1]: t[0] + 1 for t in enumerate(string.ascii_lowercase)}
 
 # model parameters
-model_dim = 128
-num_heads = 4
-num_decoder_layers = 1
+model_dim = 16
+num_heads = 2
+num_decoder_layers = 2
 
 # build the model
 transformer = Transformer(vocab, model_dim, num_heads, num_decoder_layers)

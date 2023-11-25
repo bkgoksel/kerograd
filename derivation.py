@@ -16,22 +16,32 @@ def differentiates(numpy_function):
 
 @differentiates(np.concatenate)
 def concatenate(
-    inputs: list[any], differentiate_wrt: str, rolling_partial: np.ndarray
+    inputs: list[any],
+    kwargs: dict[any, any],
+    differentiate_wrt: str,
+    rolling_partial: np.ndarray,
 ) -> np.ndarray:
-    input_arrays, axis = inputs
+    """
+    extract the indices that came from the wrt param in the rolling partial
+    """
     # concatenation, grads are 1 where the differentiate_wrt is and 0 elsewhere
     grad_arrays = []
-    for i, param in enumerate(input_arrays):
+    for i, param in enumerate(inputs[0]):
         if hasattr(param, "name") and param.name == differentiate_wrt:
-            grad_arrays.append(rolling_partial)
+            wrt_shape = param.shape
+            grad_arrays.append(np.ones(param.shape))
         else:
             grad_arrays.append(np.zeros(param.shape))
-    return np.concatenate(grad_arrays, axis=axis)
+    grad = np.concatenate(grad_arrays, **kwargs)
+    return np.extract(grad, rolling_partial).reshape(wrt_shape)
 
 
 @differentiates(np.add)
 def add(
-    inputs: list[any], differentiate_wrt: str, rolling_partial: np.ndarray
+    inputs: list[any],
+    kwargs: dict[any, any],
+    differentiate_wrt: str,
+    rolling_partial: np.ndarray,
 ) -> np.ndarray:
     dims = [
         arg for arg in inputs if hasattr(arg, "name") and arg.name == differentiate_wrt
@@ -41,7 +51,10 @@ def add(
 
 @differentiates(np.subtract)
 def subtract(
-    inputs: list[any], differentiate_wrt: str, rolling_partial: np.ndarray
+    inputs: list[any],
+    kwargs: dict[any, any],
+    differentiate_wrt: str,
+    rolling_partial: np.ndarray,
 ) -> np.ndarray:
     for i, param in enumerate(inputs):
         if hasattr(param, "name") and param.name == differentiate_wrt:
@@ -51,31 +64,59 @@ def subtract(
 
 @differentiates(np.multiply)
 def multiply(
-    inputs: list[any], differentiate_wrt: str, rolling_partial: np.ndarray
+    inputs: list[any],
+    kwargs: dict[any, any],
+    differentiate_wrt: str,
+    rolling_partial: np.ndarray,
 ) -> np.ndarray:
     # multiply is element-wise, return the other input
     for i, param in enumerate(inputs):
         if hasattr(param, "name") and param.name == differentiate_wrt:
             return rolling_partial * (inputs[(i - 1) ** 2])
 
+@differentiates(np.sum)
+def sum(
+    inputs: list[any],
+    kwargs: dict[any, any],
+    differentiate_wrt: str,
+    rolling_partial: np.ndarray,
+) -> np.ndarray:
+    return rolling_partial
+
+
+
+@differentiates(np.expand_dims)
+def expand_dims(
+    inputs: list[any],
+    kwargs: dict[any, any],
+    differentiate_wrt: str,
+    rolling_partial: np.ndarray,
+) -> np.ndarray:
+    return rolling_partial
+
 
 @differentiates(np.divide)
 def divide(
-    inputs: list[any], differentiate_wrt: str, rolling_partial: np.ndarray
+    inputs: list[any],
+    kwargs: dict[any, any],
+    differentiate_wrt: str,
+    rolling_partial: np.ndarray,
 ) -> np.ndarray:
     # divide is element-wise, return the negative of other input
     for i, param in enumerate(inputs):
         if hasattr(param, "name") and param.name == differentiate_wrt:
             if i == 0:
-                return (rolling_partial * inputs[(i - 1) ** 2])
+                return rolling_partial * inputs[(i - 1) ** 2]
             else:
                 return -1 * (rolling_partial * inputs[(i - 1) ** 2])
 
 
-
 @differentiates(np.einsum)
 def einsum(
-    inputs: list[any], differentiate_wrt: str, rolling_partial: np.ndarray
+    inputs: list[any],
+    kwargs: dict[any, any],
+    differentiate_wrt: str,
+    rolling_partial: np.ndarray,
 ) -> np.ndarray:
     # TODO: parse einsum string, figure out what the derivation is
     #   - Ellipses/broadcasting will likely be annoying
@@ -141,7 +182,10 @@ def einsum(
 
 @differentiates(np.matmul)
 def matmul(
-    inputs: list[any], differentiate_wrt: str, rolling_partial: np.ndarray
+    inputs: list[any],
+    kwargs: dict[any, any],
+    differentiate_wrt: str,
+    rolling_partial: np.ndarray,
 ) -> np.ndarray:
     for i, param in enumerate(inputs):
         if hasattr(param, "name") and param.name == differentiate_wrt:
@@ -167,6 +211,9 @@ def matmul(
         return np.einsum(grad_mul, rolling_partial, grad)
     else:
         if wrt_index == 0:
+            if (rolling_partial.shape[-1] != other_param.T.shape[0]):
+                print(f"{wrt_param.shape} @ {other_param.shape} -> GRAD {rolling_partial.shape}")
+                breakpoint()
             return rolling_partial.dot(other_param.T)
         else:
             return other_param.T.dot(rolling_partial)
@@ -174,7 +221,10 @@ def matmul(
 
 @differentiates(np.mean)
 def mean(
-    inputs: list[any], differentiate_wrt: str, rolling_partial: np.ndarray
+    inputs: list[any],
+    kwargs: dict[any, any],
+    differentiate_wrt: str,
+    rolling_partial: np.ndarray,
 ) -> np.ndarray:
     dims = [
         arg for arg in inputs if hasattr(arg, "name") and arg.name == differentiate_wrt
@@ -184,28 +234,65 @@ def mean(
 
 @differentiates(np.transpose)
 def transpose(
-    inputs: list[any], differentiate_wrt: str, rolling_partial: np.ndarray
+    inputs: list[any],
+    kwargs: dict[any, any],
+    differentiate_wrt: str,
+    rolling_partial: np.ndarray,
 ) -> np.ndarray:
     return rolling_partial.transpose()
 
 
 @differentiates(np.exp)
 def exp(
-    inputs: list[any], differentiate_wrt: str, rolling_partial: np.ndarray
+    inputs: list[any],
+    kwargs: dict[any, any],
+    differentiate_wrt: str,
+    rolling_partial: np.ndarray,
 ) -> np.ndarray:
     return rolling_partial * (np.exp(inputs[0]))
 
 
+@differentiates(np.sqrt)
+def sqrt(
+    inputs: list[any],
+    kwargs: dict[any, any],
+    differentiate_wrt: str,
+    rolling_partial: np.ndarray,
+) -> np.ndarray:
+    return 0.5 * np.sqrt(rolling_partial)
+
+
 @differentiates(np.square)
 def square(
-    inputs: list[any], differentiate_wrt: str, rolling_partial: np.ndarray
+    inputs: list[any],
+    kwargs: dict[any, any],
+    differentiate_wrt: str,
+    rolling_partial: np.ndarray,
 ) -> np.ndarray:
     return rolling_partial * (2 * inputs[0])
 
 
+@differentiates(np.max)
+def max(
+    inputs: list[any],
+    kwargs: dict[any, any],
+    differentiate_wrt: str,
+    rolling_partial: np.ndarray,
+) -> np.ndarray:
+    if len(inputs) > 1:
+        raise NotImplementedError("max only over one input")
+    grad = np.zeros(inputs[0].shape)
+    max_idx = np.unravel_index(np.argmax(inputs[0]), inputs[0].shape)
+    grad[*max_idx] = 1
+    return rolling_partial * grad
+
+
 @differentiates(np.maximum)
 def maximum(
-    inputs: list[any], differentiate_wrt: str, rolling_partial: np.ndarray
+    inputs: list[any],
+    kwargs: dict[any, any],
+    differentiate_wrt: str,
+    rolling_partial: np.ndarray,
 ) -> np.ndarray:
     if len(inputs) >= 2 and np.isscalar(inputs[1]):
         return rolling_partial * ((inputs[0] >= inputs[1]))

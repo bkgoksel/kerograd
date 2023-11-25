@@ -20,9 +20,18 @@ class NamedOp:
     def apply(self, *args, **kwargs) -> Param:
         res = self.forward(*args, **kwargs)
         parent = getattr(res, "parent", None)
-        return Param(res, name=f"{self.name}_out", parent=parent)
+        propagate_grads = parent.propagate_grads if parent else False
+        return Param(
+            res, name=f"{self.name}_out", parent=parent, propagate_grads=propagate_grads
+        )
 
     def apply_fn(self, fn, *args, **kwargs) -> Param:
         res = fn(*args, **kwargs)
         parent = getattr(res, "parent", None)
-        return Param(res, name=f"{self.name}_{fn}_out", parent=parent)
+        propagate_grads = parent.propagate_grads if parent else False
+        return Param(
+            res,
+            name=f"{self.name}_{fn}_out",
+            parent=parent,
+            propagate_grads=propagate_grads,
+        )

@@ -17,7 +17,7 @@ class Embeddings(NamedOp):
 
     def __post_init__(self):
         super().__post_init__()
-        self.embeddings = Param(self.initialization.initialize((self.vocab_size, self.dim)), name=f"{self.name}_embeddings", trainable=True)
+        self.embeddings = Param(self.initialization.initialize((self.vocab_size, self.dim)), name=f"{self.name}_embedding_matrix", trainable=True)
 
     def forward(self, sequence: np.array) -> np.array:
         return self.embeddings.take(sequence, axis=0)

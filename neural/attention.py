@@ -1,5 +1,4 @@
 import numpy as np
-import math
 
 from dataclasses import dataclass
 from computation import Param
@@ -48,11 +47,12 @@ class AttentionHead(NamedOp):
         Q = q_in @ self.W_q  # [context_len, output_dim]
         K = k_in @ self.W_k  # [context_len, output_dim]
         V = v_in @ self.W_v  # [context_len, output_dim]
-        importance = Q @ K.transpose()  # [context_len, context_len]
+        K_t =  np.transpose(K)
+        importance = Q @ K_t  # [context_len, context_len]
         if self.mask:
             diagonal_mask = -1e8 * (1 - np.tril(np.ones(q_in.shape[0])))
             importance = importance + diagonal_mask
-        importance_scaled = importance / math.sqrt(self.output_dim)
+        importance_scaled = importance / np.sqrt(self.output_dim)
         importance_softmax = softmax(importance_scaled)
         return importance_softmax @ V  # [context_len, output_dim]
 
@@ -81,7 +81,11 @@ class MultiHeadAttention(NamedOp):
             )
             for i in range(self.num_heads)
         ]
-        self.W_o = self.initialization.initialize((self.output_dim, self.output_dim))
+        self.W_o = Param(
+            self.initialization.initialize((self.output_dim, self.output_dim)),
+            name=f"{self.name}_W_o",
+            trainable=True,
+        )
 
     def forward(
         self,

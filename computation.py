@@ -19,7 +19,10 @@ class Edge:
     method: any
     inputs: iter
     kwargs: dict[str, any]
-    trainable: bool = False
+    propagate_grads: bool = False
+
+    def __str__(self) -> str:
+        return f"Edge(func={self.func}, method={self.method}, propagate_grads={self.propagate_grads})"
 
 
 class Param(np.ndarray):
@@ -37,13 +40,18 @@ class Param(np.ndarray):
         name: str = None,
         parent: Edge = None,
         trainable: bool = False,
+        propagate_grads: bool = False,
     ):
         obj = np.asarray(value).view(cls)
         obj.name = name or Param.random_name()
         obj.parent = parent
-        if obj.parent and any(hasattr(param, 'name') and param.name == obj.name for param in obj.parent.inputs):
+        if obj.parent and any(
+            hasattr(param, "name") and param.name == obj.name
+            for param in obj.parent.inputs
+        ):
             raise Exception()
         obj.trainable = trainable
+        obj.propagate_grads = propagate_grads
         return obj
 
     def __array_finalize__(self, obj):
@@ -52,7 +60,11 @@ class Param(np.ndarray):
         self.name = getattr(obj, "name", None)
         self.parent = getattr(obj, "parent", None)
         self.trainable = getattr(obj, "trainable", False)
-        if self.parent and any(hasattr(param, 'name') and param.name == self.name for param in self.parent.inputs):
+        self.propagate_grads = getattr(obj, "propagate_grads", False)
+        if self.parent and any(
+            hasattr(param, "name") and param.name == self.name
+            for param in self.parent.inputs
+        ):
             raise Exception()
 
     def __array_ufunc__(self, ufunc, method, *inputs, out=None, **kwargs):
@@ -70,14 +82,16 @@ class Param(np.ndarray):
         else:
             outputs = (None,) * ufunc.nout
         input_arrays = []
-        trainable = self._is_upstream_of_trainable()
-        for input_arg in inputs:
-            if isinstance(input_arg, Param):
-                trainable = trainable or input_arg._is_upstream_of_trainable()
-                input_arrays.append(input_arg.view(np.ndarray))
-            else:
-                input_arrays.append(input_arg)
-        results = super().__array_ufunc__(ufunc, method, *input_arrays, **kwargs)
+        propagate_grads = self._grads_from_upstream() or any(
+            self._any_propagate_grads(arg) for arg in inputs
+        )
+        input_arrays = [self._normalize_arg(arg) for arg in inputs]
+        try:
+            results = super().__array_ufunc__(ufunc, method, *input_arrays, **kwargs)
+        except RuntimeWarning as ex:
+            print(results)
+            print(ex)
+            breakpoint()
         if results is NotImplemented:
             return NotImplemented
         if ufunc.nout == 1:
@@ -90,14 +104,17 @@ class Param(np.ndarray):
                 for result, output in zip(results, outputs)
             )
         )
-        parent = Edge(ufunc, method, inputs, kwargs, trainable=trainable)
+        parent = Edge(ufunc, method, inputs, kwargs, propagate_grads=propagate_grads)
         name = f"{ufunc.__name__}_{Param.random_name()}"
         if results:
             if isinstance(results[0], Param):
                 results[0].parent = parent
                 results[0].name = name
+                results[0].propagate_grads = propagate_grads
             if np.isscalar(results[0]):
-                results[0] = Param(results[0], name, parent)
+                results[0] = Param(
+                    results[0], name, parent, propagate_grads=propagate_grads
+                )
 
         return results[0] if len(results) == 1 else results
 
@@ -110,6 +127,12 @@ class Param(np.ndarray):
             return tuple((self._normalize_arg(subarg) for subarg in arg))
         return arg
 
+    def _any_propagate_grads(self, arg):
+        if isinstance(arg, Param):
+            return arg.trainable or arg.propagate_grads
+        if isinstance(arg, list) or isinstance(arg, tuple):
+            return any(self._any_propagate_grads(subarg) for subarg in arg)
+
     def __array_function__(self, func, types, args, kwargs):
         # Note: this allows subclasses that don't override
         # __array_function__ to handle Param objects
@@ -117,15 +140,18 @@ class Param(np.ndarray):
             return NotImplemented
         input_arrays = [self._normalize_arg(arg) for arg in args]
         return_arr = func(*input_arrays, **kwargs)
-        trainable = any(
-            input_arg.trainable for input_arg in args if isinstance(input_arg, Param)
-        )
+        propagate_grads = any(self._any_propagate_grads(arg) for arg in args)
         return Param(
             value=return_arr,
             name=f"{func.__name__}_{Param.random_name()}",
             parent=Edge(
-                func, method=None, inputs=args, kwargs=kwargs, trainable=trainable
+                func,
+                method=None,
+                inputs=args,
+                kwargs=kwargs,
+                propagate_grads=propagate_grads,
             ),
+            propagate_grads=propagate_grads,
         )
 
     def __iadd__(self, *args, **kwargs):
@@ -137,8 +163,15 @@ class Param(np.ndarray):
             val = val.sum((0))
         self.__iadd__(-val)
 
-    def _is_upstream_of_trainable(self) -> bool:
-        return self.trainable or (self.parent and self.parent.trainable)
+    def _grads_from_upstream(self) -> bool:
+        return (
+            self.trainable
+            or self.propagate_grads
+            or (self.parent and self.parent.propagate_grads)
+        )
+
+    def __str__(self) -> str:
+        return f"Param(name={self.name}, shape={self.shape}, parent={self.parent}, trainable={self.trainable}), propagate_grads={self.propagate_grads}"
 
 
 @dataclass
@@ -169,59 +202,39 @@ class ComputationGraph:
         Only returns the parameters and gradients for the trainable parameters, unless store_full_graph is true.
         """
         if root_param.parent:
-            if root_param.parent.func in DIFFERENTIABLE_FUNCTIONS:
+            parent = root_param.parent
+            if parent.func in DIFFERENTIABLE_FUNCTIONS:
                 if partial_grad is None:
                     partial_grad = np.ones(root_param.shape)
-                differential = DIFFERENTIABLE_FUNCTIONS[root_param.parent.func]
-                for parent_param in root_param.parent.inputs:
+                differential = DIFFERENTIABLE_FUNCTIONS[parent.func]
+                parent_input_params = (
+                    parent.inputs[0] if parent.func == np.concatenate else parent.inputs
+                )
+                for parent_param in parent_input_params:
                     if isinstance(parent_param, Param):
                         try:
                             param_grad = differential(
-                                root_param.parent.inputs, parent_param.name, partial_grad
+                                root_param.parent.inputs,
+                                root_param.parent.kwargs,
+                                parent_param.name,
+                                partial_grad,
                             )
                         except NotImplementedError as ex:
-                            raise NotImplementedError(f"{parent_param.name}'s function {root_param.parent.func} not fully implemented: {ex}")
+                            raise NotImplementedError(
+                                f"{parent_param.name}'s function {root_param.parent.func} not fully implemented: {ex}"
+                            )
                         if store_full_graph or parent_param.trainable:
                             yield (parent_param, param_grad)
-                        if store_full_graph or parent_param._is_upstream_of_trainable():
-                            if parent_param.name == root_param.name:
-                                print(f"{root_param.name}'s parent is itself")
-                                print(", ".join([param.name if hasattr(param, 'name') else '' for param in root_param.parent.inputs]))
+                        if store_full_graph or parent_param.propagate_grads:
                             yield from cls.backwards(
                                 parent_param, store_full_graph, param_grad
                             )
             else:
                 print(f"{root_param.parent.func} not differentiable")
 
-    @classmethod
-    def _graph_string(cls, root_param: Param, prefix="") -> str:
-        str = ""
-        str += f"{prefix}Name: {root_param.name}\n"
-        str += f"{prefix}Shape: {root_param.shape}\n"
-        str += f"{prefix}Trainable: {root_param.trainable}\n"
-        print(str)
-        if root_param.parent:
-            str += f"{prefix}Parent: {root_param.parent.func.__name__}\n"
-            if root_param.parent.func in DIFFERENTIABLE_FUNCTIONS:
-                str += f"{prefix}-->differentiable\n"
-            else:
-                str += f"{prefix}-->NOT differentiable\n"
-            for parent_param in root_param.parent.inputs:
-                if isinstance(parent_param, Param):
-                    #str += f"{prefix}\tParam:\n"
-                    str += f"{prefix}Param:\n"
-                    #str += cls._graph_string(parent_param, prefix + "\t  ")
-                    str += cls._graph_string(parent_param, prefix)
-                elif isinstance(parent_param, np.ndarray):
-                    #str += f"{prefix}\tParam:\n{prefix}\t  {parent_param.shape}\n"
-                    str += f"{prefix}Param:\n{prefix}  {parent_param.shape}\n"
-                else:
-                    #str += f"{prefix}\tParam:\n{prefix}\t  {parent_param}\n"
-                    str += f"{prefix}Param:\n{prefix}  {parent_param}\n"
-        return str
-
     def __str__(self) -> str:
-        return self._graph_string(self.root)
+        printer = GraphPrinter(printed=set())
+        return printer._print_graph(self.root)
 
     def summary(self) -> None:
         print(
@@ -232,3 +245,34 @@ class ComputationGraph:
                 ]
             )
         )
+
+
+@dataclass
+class GraphPrinter:
+    printed: set[str]
+
+    def _print_graph(self, root_param, prefix="") -> str:
+        str = ""
+        str += f"{prefix}Name: {root_param.name}\n"
+        str += f"{prefix}Shape: {root_param.shape}\n"
+        str += f"{prefix}Trainable: {root_param.trainable}\n"
+        str += f"{prefix}Propagate grads: {root_param.propagate_grads}\n"
+        # print(str)
+        if root_param.name in self.printed:
+            return str
+        self.printed.add(root_param.name)
+        if root_param.parent:
+            str += f"{prefix}Parent: {root_param.parent.func.__name__}\n"
+            if root_param.parent.func in DIFFERENTIABLE_FUNCTIONS:
+                str += f"{prefix}-->differentiable\n"
+            else:
+                str += f"{prefix}-->NOT differentiable\n"
+            for parent_param in root_param.parent.inputs:
+                if isinstance(parent_param, Param):
+                    str += f"{prefix}\tParam:\n"
+                    str += self._print_graph(parent_param, prefix + "\t  ")
+                elif isinstance(parent_param, np.ndarray):
+                    str += f"{prefix}\tParam:\n{prefix}\t  {parent_param.shape}\n"
+                else:
+                    str += f"{prefix}\tParam:\n{prefix}\t  {parent_param}\n"
+        return str
