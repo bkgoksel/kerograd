@@ -1,3 +1,4 @@
+import random
 import string
 import sys
 
@@ -11,13 +12,13 @@ from neural import (
 )
 
 # epochs to train on
-epochs = 1000
+epochs = 100000
 
 # vocab is ascii lowercase alphabet and EOS (~) character
 vocab = {"~": 0} | {t[1]: t[0] + 1 for t in enumerate(string.ascii_lowercase)}
 
 # model parameters
-model_dim = 16
+model_dim = 64
 num_heads = 2
 num_decoder_layers = 2
 
@@ -32,12 +33,15 @@ all_gold_output_one_hot = [np.eye(len(vocab))[gold_output_indices] for gold_outp
 
 def iteration(i):
     total_loss = .0
-    # no batching, iterate over each example one-by-one
-    for input_tokens, gold_output_one_hot in zip(input_data, all_gold_output_one_hot):
+    indices = list(range(len(input_data)))
+    random.shuffle(indices)
+    for i in indices:
+        input_tokens = input_data[i]
+        gold_output_one_hot = all_gold_output_one_hot[i]
         logits = transformer.apply(input_tokens)
         loss = mean_squared_loss(logits, gold_output_one_hot)
-        SimpleOptimizer.optimize(loss, learning_rate=2e-4, gradient_clip=1e2)
         total_loss = total_loss + loss
+    SimpleOptimizer.optimize(total_loss, learning_rate=1e-6, gradient_clip=1e1)
     avg_loss = total_loss / len(input_data)
     if not (i % 4):
         prediction = ' '.join(transformer._get_prediction(logits))

@@ -82,7 +82,7 @@ class Transformer(NamedOp):
             len(input_tokens), self.model_dim
         )
         hidden_state = self.embedding_layer.apply(input_tokens)
-        #hidden_state = hidden_state + positional_encodings
+        hidden_state = hidden_state + positional_encodings
         for decoder_layer in self.decoders:
             hidden_state = decoder_layer.apply(hidden_state)
         logits = self.embedding_layer.to_embeddings(hidden_state)
